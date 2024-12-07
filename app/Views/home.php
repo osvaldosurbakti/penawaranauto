@@ -138,7 +138,7 @@
 
         <!-- Opsi Jumlah Penumpang untuk PA Passenger -->
         <label for="pa_passenger_count">Jumlah Penumpang (Max 4)</label>
-        <select name="pa_passenger_count" id="pa_passenger_count">
+        <select name="pa_passenger_count" id="pa_passenger_count" disabled onchange="updatePAResult()">
             <option value="1">1 Penumpang</option>
             <option value="2">2 Penumpang</option>
             <option value="3">3 Penumpang</option>
@@ -173,5 +173,53 @@
         <?= session()->getFlashdata('error') ?>
     </div>
 <?php endif; ?>
+
+<script>
+    function togglePAPassengerInput(checkbox) {
+        // Enable/Disable input dan select jumlah penumpang ketika checkbox PA Passenger dicentang
+        const paPassengerValueInput = document.getElementById('pa_passenger_value');
+        const paPassengerCountSelect = document.getElementById('pa_passenger_count');
+
+        if (checkbox.checked) {
+            paPassengerValueInput.disabled = false; // Aktifkan input
+            paPassengerCountSelect.disabled = false; // Aktifkan dropdown jumlah penumpang
+        } else {
+            paPassengerValueInput.disabled = true; // Nonaktifkan input
+            paPassengerCountSelect.disabled = true; // Nonaktifkan dropdown jumlah penumpang
+        }
+    }
+
+    function updatePAResult() {
+        const paPassengerValue = parseFloat(document.getElementById('pa_passenger_value').value);
+        const paPassengerCount = parseInt(document.getElementById('pa_passenger_count').value);
+
+        if (!isNaN(paPassengerValue) && paPassengerCount) {
+            let multiplier = 0;
+
+            // Tentukan multiplier berdasarkan jumlah penumpang
+            switch (paPassengerCount) {
+                case 1:
+                    multiplier = 0.1;
+                    break;
+                case 2:
+                    multiplier = 0.2;
+                    break;
+                case 3:
+                    multiplier = 0.3;
+                    break;
+                case 4:
+                    multiplier = 0.4;
+                    break;
+            }
+
+            // Hitung hasil berdasarkan input dan jumlah penumpang
+            const result = paPassengerValue * multiplier;
+
+            // Menampilkan hasil sementara atau kirim ke server untuk perhitungan lebih lanjut
+            console.log("PA Passenger Result: ", result);
+            // Bisa kirim hasil ke server atau tampilkan di tempat yang sesuai
+        }
+    }
+</script>
 
 </html>

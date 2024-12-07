@@ -15,6 +15,8 @@ class HomeController extends Controller
         return view('home');
     }
 
+
+
     public function generatePdf()
     {
         // Ambil data dari form
@@ -33,8 +35,8 @@ class HomeController extends Controller
         $earthquake = $this->request->getPost('earthquake'); // Ambil input Earthquake
         $pa_driver_value = $this->request->getPost('pa_driver_value');
         $pa_passenger_value = $this->request->getPost('pa_passenger_value');
+        $pa_passenger_count = $this->request->getPost('pa_passenger_count');
         $tpl_value = $this->request->getPost('tpl_value');
-
 
         if ($harga_mobil < 5000000 || $harga_mobil > 10000000000) {
             return redirect()->back()->with('error', 'Harga mobil tidak valid.');
@@ -130,20 +132,79 @@ class HomeController extends Controller
         $hasil = $harga_mobil * ($persentase / 100);
 
         // Jika Bengkel Authorized dicentang, tambahkan perhitungan
+
+
+        // Generate Nomor Quotation
+        $penawaranModel = new PenawaranModel();
+        $nomor_quotation = $penawaranModel->generateNomorQuotation($userId);
+
+        // Generate PDF
+        $pdf = new TCPDF();
+        $pdf->SetMargins(15, 25, 15); // Margin lebih rapi
+        $pdf->SetAutoPageBreak(TRUE, 20);
+        $pdf->AddPage();
+
+        // Header
+        $pdf->Image(FCPATH . 'assets/logo.jpeg', 15, 15, 40); // Sesuaikan ukuran dan posisi logo
+        $pdf->SetFont('helvetica', 'B', 18);
+        $pdf->Cell(0, 10, 'Quotation Summary', 0, 1, 'C');
+        $pdf->SetFont('helvetica', '', 10);
+        $pdf->Cell(0, 5, 'PT. Asuransi Raksa Pratikara', 0, 1, 'C');
+        $pdf->Cell(0, 5, "Phone: $phone | Email: $email", 0, 1, 'C');
+        $pdf->Line(15, 45, 195, 45); // Garis pemisah
+        $pdf->Ln(10);
+
+        // Detail Quotation
+        $pdf->SetFont('helvetica', 'B', 14);
+        $pdf->Cell(0, 10, 'Detail Penawaran', 0, 1, 'L');
+        $pdf->SetFont('helvetica', '', 12);
+
+        //Detaril Tertanggung
+        $dataTertanggung = [
+            'Nama Tertanggung' => ucfirst($nama_tertanggung),
+            'Alamat Tertanggung' => ucfirst($alamat_tertanggung),
+            'Jenis Kendaraan' => ucfirst($kategori),
+            'Tahun' => $tahun_mobil,
+            'Harga Pertanggungan' => 'Rp ' . number_format($harga_mobil, 0, ',', '.'),
+        ];
+
+        foreach ($dataTertanggung as $key => $value) {
+            $pdf->Cell(50, 8, "$key:", 0, 0, 'L');
+            $pdf->Cell(0, 8, $value, 0, 1, 'L');
+        }
+
+        $pdf->Ln(10);
+
+
+        // Tabel Ringkasan Premium
+        $pdf->SetFont('helvetica', 'B', 14);
+        $pdf->Cell(0, 10, 'Ringkasan Premium', 0, 1, 'L');
+        $pdf->SetFillColor(230, 230, 230);
+        $pdf->SetFont('helvetica', 'B', 12);
+
+        // Header Tabel
+        $header = ['Perluasan', 'Nilai Pertanggungan', 'X', 'Rate', 'Premium'];
+        $widths = [60, 50, 10, 30, 40]; // Sesuaikan lebar kolom dengan isi tabel
+
+        $pdf->SetFont('Helvetica', 'B', 10);
+        $pdf->SetFillColor(200, 200, 200); // Warna latar header
+        foreach ($header as $key => $col) {
+            $pdf->Cell($widths[$key], 8, $col, 1, 0, 'C', 1);
+        }
+        $pdf->Ln();
+
+        // Isi Tabel
+        $pdf->SetFont('Helvetica', '', 10);
+        $pdf->SetFillColor(255, 255, 255);
+
+        // Tambahkan data Bengkel Authorized
         $bengkelAuthorizedHasil = 0;
-        if ($bengkel_authorized && is_numeric($bengkel_authorized_value)) {
+        if ($bengkel_authorized) {
             $bengkelAuthorizedHasil = $harga_mobil * ($bengkel_authorized_value / 100);
             $hasil += $bengkelAuthorizedHasil;
         }
 
-
-        // Jika RSCC dicentang, tambahkan 0.05% ke hasil
-        if ($rscc) {
-            $rscc_value = $harga_mobil * 0.0005;  // 0.05%
-            $hasil += $rscc_value;
-        }
-
-        // Jika Banjir dicentang, tambahkan perhitungan berdasarkan wilayah
+        // Jika ada Banjir
         if ($banjir) {
             $banjirPersentase = 0;
             if ($wilayah == '1') {
@@ -157,7 +218,13 @@ class HomeController extends Controller
             $hasil += $banjir_value;
         }
 
-        // Jika Earthquake dicentang, tambahkan perhitungan berdasarkan wilayah
+        // Jika ada RSCC
+        if ($rscc) {
+            $rscc_value = $harga_mobil * 0.0005;  // 0.05%
+            $hasil += $rscc_value;
+        }
+
+        // Risiko Gempa
         if ($earthquake) {
             $earthquakePersentase = 0;
             if ($wilayah == '1') {
@@ -168,161 +235,177 @@ class HomeController extends Controller
                 $earthquakePersentase = $rate == 'atas' ? 0.135 : 0.075;
             }
             $earthquake_value = $harga_mobil * ($earthquakePersentase / 100);
+            $earthquake_value = is_numeric($earthquake_value) ? (float)$earthquake_value : 0;
             $hasil += $earthquake_value;
         }
 
-        // Generate Nomor Quotation
-        $penawaranModel = new PenawaranModel();
-        $nomor_quotation = $penawaranModel->generateNomorQuotation($userId);
+        // PA Driver and Passenger
+        if ($pa_driver_value) {
+            $pa_driver_value = is_numeric($pa_driver_value) ? (float)$pa_driver_value : 0;
+            $paDriverResult = $pa_driver_value * (0.5 / 100);
+            $hasil += $paDriverResult;
+        }
 
-        // Generate PDF
-        $pdf = new TCPDF();
-        $pdf->SetMargins(10, 20, 10); // Set margin atas, kiri, kanan
-        $pdf->SetAutoPageBreak(TRUE, 15); // Atur margin bawah
-        $pdf->AddPage();
-        $pdf->SetFont('helvetica', '', 12);
+        if ($pa_passenger_value && is_numeric($pa_passenger_value) && $pa_passenger_count) {
+            $pa_passenger_value = (float)$pa_passenger_value;
 
-        // Header
-        $pdf->Image(FCPATH . 'assets/logo.jpeg', 10, 15, 50);
-        $pdf->SetFont('helvetica', 'B', 20);
-        $pdf->Cell(0, 15, 'Quotation Summary', 0, 1, 'C');
-        $pdf->SetFont('helvetica', '', 10);
-        $pdf->Cell(0, 5, 'PT. Asuransi Raksa Pratikara', 0, 1, 'C');
-        $pdf->Cell(0, 5, "Phone: $phone | Email: $email", 0, 1, 'C');
+            $multiplier = 0;
+            switch ($pa_passenger_count) {
+                case 1:
+                    $multiplier = 0.1;
+                    break;
+                case 2:
+                    $multiplier = 0.2;
+                    break;
+                case 3:
+                    $multiplier = 0.3;
+                    break;
+                case 4:
+                    $multiplier = 0.4;
+                    break;
+            }
 
-        // Garis Pembatas
-        $pdf->Line(10, 40, 200, 40);
-        $pdf->Ln(10);
+            $paPassengerResult = $pa_passenger_value * $multiplier / 100;
+            $hasil += $paPassengerResult;
+        }
 
-        // Detail Quotation
-        $pdf->SetFont('helvetica', 'B', 14);
-        $pdf->Cell(0, 10, 'Detail Penawaran', 0, 1, 'L');
-        $pdf->SetFont('helvetica', '', 12);
-        $pdf->Cell(50, 10, 'Nama Tertanggung:', 0, 0, 'L');
-        $pdf->Cell(0, 10, ucfirst($nama_tertanggung), 0, 1, 'L');
-        // Ulangi untuk detail lainnya
-        $pdf->Cell(50, 10, 'Alamat Tertanggung:', 0, 0, 'L');
-        $pdf->Cell(0, 10, ucfirst($alamat_tertanggung), 0, 1, 'L');
-        $pdf->Cell(50, 10, 'Jenis Kendaraan:', 0, 0, 'L');
-        $pdf->Cell(0, 10, ucfirst($kategori), 0, 1, 'L');
-        $pdf->Cell(50, 10, 'Tahun:', 0, 0, 'L');
-        $pdf->Cell(0, 10, $tahun_mobil, 0, 1, 'L');
-        $pdf->Cell(50, 10, 'Harga Pertanggungan:', 0, 0, 'L');
-        $pdf->Cell(0, 10, ucfirst($harga_mobil), 0, 1, 'L');
+        // Tanggung Jawab Pihak Ketiga
+        if ($tpl_value) {
+            $tpl_value = is_numeric($tpl_value) ? (float)$tpl_value : 0;
+            $tanggungJawabResult = $tpl_value * (1.0 / 100);
+            $hasil += $tanggungJawabResult;
+        }
 
-        // Ringkasan Premium dalam Tabel
-        $pdf->Ln(10);
-        $pdf->SetFont('helvetica', 'B', 14);
-        $pdf->Cell(0, 10, 'Ringkasan Premium', 0, 1, 'L');
+        $comprehensiveResult = $harga_mobil * ($persentase / 100);
 
-        // Mulai tabel dengan header
-        $pdf->SetFillColor(230, 230, 230);
-        $pdf->SetFont('helvetica', 'B', 12);
-        $pdf->Cell(45, 8, 'Nilai Pertanggungan', 1, 0, 'C', 1);
-        $pdf->Cell(30, 8, 'X', 1, 0, 'C', 1);
-        $pdf->Cell(35, 8, 'Rate', 1, 0, 'C', 1);
-        $pdf->Cell(50, 8, 'Premi', 1, 1, 'C', 1);
-
-        // Reset font dan fill untuk isi tabel
-        $pdf->SetFont('helvetica', '', 12);
-        $pdf->SetFillColor(255, 255, 255);
-
-        // Tambahkan data Comprehensive
-        $comprehensiveResult = $harga_mobil * (1.7900 / 100);
-        $pdf->Cell(45, 8, number_format($harga_mobil, 0, ',', '.'), 1, 0, 'C');
-        $pdf->Cell(30, 8, 'x', 1, 0, 'C');
-        $pdf->Cell(35, 8, '1.7900%', 1, 0, 'C');
-        $pdf->Cell(50, 8, 'Rp ' . number_format($comprehensiveResult, 0, ',', '.'), 1, 1, 'C');
+        $this->tableRow(
+            $pdf,
+            'Comprehensive',
+            $harga_mobil,
+            'x',
+            number_format($persentase, 4, ',', '.') . '%',
+            $comprehensiveResult
+        );
 
         // Tambahkan data Bengkel Authorized
         if ($bengkel_authorized) {
-            $bengkelAuthorizedResult = $harga_mobil * ($bengkel_authorized_value / 100);
-            $pdf->Cell(45, 8, number_format($harga_mobil, 0, ',', '.'), 1, 0, 'C');
-            $pdf->Cell(30, 8, 'x', 1, 0, 'C');
-            $pdf->Cell(35, 8, number_format($bengkel_authorized_value, 4, ',', '.') . '%', 1, 0, 'C');
-            $pdf->Cell(50, 8, 'Rp ' . number_format($bengkelAuthorizedResult, 0, ',', '.'), 1, 1, 'C');
+            $this->tableRow(
+                $pdf,
+                'Bengkel Authorized',
+                $harga_mobil,
+                'x',
+                number_format($bengkel_authorized_value, 2, ',', '.') . '%',
+                $bengkelAuthorizedHasil
+            );
         }
 
-        // Tambahkan data RSCC
-        if ($rscc) {
-            $rsccResult = $harga_mobil * (0.05 / 100);
-            $pdf->Cell(45, 8, number_format($harga_mobil, 0, ',', '.'), 1, 0, 'C');
-            $pdf->Cell(30, 8, 'x', 1, 0, 'C');
-            $pdf->Cell(35, 8, '0.050%', 1, 0, 'C');
-            $pdf->Cell(50, 8, 'Rp ' . number_format($rsccResult, 0, ',', '.'), 1, 1, 'C');
-        }
-
-        // Tambahkan data Risiko Banjir
+        // Jika ada Banjir
         if ($banjir) {
-            $banjirResult = $harga_mobil * ($banjir_value / 100);
-            $pdf->Cell(45, 8, number_format($harga_mobil, 0, ',', '.'), 1, 0, 'C');
-            $pdf->Cell(30, 8, 'x', 1, 0, 'C');
-            $pdf->Cell(35, 8, number_format($banjir_value, 4, ',', '.') . '%', 1, 0, 'C');
-            $pdf->Cell(50, 8, 'Rp ' . number_format($banjirResult, 0, ',', '.'), 1, 1, 'C');
+            $this->tableRow(
+                $pdf,
+                'Banjir, Badai, Angin Topan dan Longsor',
+                $harga_mobil,
+                'x',
+                number_format($banjirPersentase, 3, ',', '.') . '%',
+                $banjir_value
+            );
         }
 
-        // Tambahkan data Risiko Gempa
+        // Jika ada RSCC
+        if ($rscc) {
+            $this->tableRow(
+                $pdf,
+                'RSCC (Huru Hara)',
+                $harga_mobil,
+                'x',
+                '0.050%',
+                $rscc_value
+            );
+        }
+
+        // Risiko Gempa
         if ($earthquake) {
-            $earthquakeResult = $harga_mobil * ($earthquake_value / 100);
-            $pdf->Cell(45, 8, number_format($harga_mobil, 0, ',', '.'), 1, 0, 'C');
-            $pdf->Cell(30, 8, 'x', 1, 0, 'C');
-            $pdf->Cell(35, 8, number_format($earthquake_value, 4, ',', '.') . '%', 1, 0, 'C');
-            $pdf->Cell(50, 8, 'Rp ' . number_format($earthquakeResult, 0, ',', '.'), 1, 1, 'C');
+            $this->tableRow(
+                $pdf,
+                'Gempa, Letusan Gunung Api dan Tsunami',
+                $harga_mobil,
+                'x',
+                number_format($earthquakePersentase, 3, ',', '.') . '%',
+                $earthquake_value
+            );
         }
 
-        // Tambahkan data PA Driver dan Passenger jika ada
+        // PA Driver
         if ($pa_driver_value) {
-            $paDriverResult = $pa_driver_value * (0.5 / 100);
-            $pdf->Cell(45, 8, number_format($pa_driver_value, 0, ',', '.'), 1, 0, 'C');
-            $pdf->Cell(30, 8, 'x', 1, 0, 'C');
-            $pdf->Cell(35, 8, '0.500%', 1, 0, 'C');
-            $pdf->Cell(50, 8, 'Rp ' . number_format($paDriverResult, 0, ',', '.'), 1, 1, 'C');
+            $this->tableRow(
+                $pdf,
+                'PA Driver (Asuransi Pengemudi) - Limit ' . $pa_driver_value,
+                $pa_driver_value,
+                'x',
+                '0.500%',
+                $paDriverResult
+            );
         }
 
-        // Tambahkan data PA Passenger jika ada
-        if ($pa_passenger_value) {
-            $paPassengerResult = $pa_passenger_value * (0.1 / 100);
-            $pdf->Cell(45, 8, number_format($pa_passenger_value, 0, ',', '.'), 1, 0, 'C');
-            $pdf->Cell(30, 8, 'x', 1, 0, 'C');
-            $pdf->Cell(35, 8, '0.100%', 1, 0, 'C');
-            $pdf->Cell(50, 8, 'Rp ' . number_format($paPassengerResult, 0, ',', '.'), 1, 1, 'C');
+        // PA Passenger
+        if ($pa_passenger_value && is_numeric($pa_passenger_value) && $pa_passenger_count) {
+            $this->tableRow(
+                $pdf,
+                'PA Passenger (Asuransi Penumpang) Max 4 Orang - Limit ' . $pa_passenger_value,
+                $pa_passenger_value,
+                'x',
+                '0.100%',
+                $paPassengerResult
+            );
         }
 
-        // Tambahkan data Tanggung Jawab Pihak Ketiga jika ada
+        // Tanggung Jawab Pihak Ketiga
         if ($tpl_value) {
-            $tanggungJawabResult = $tpl_value * (1.0 / 100);
-            $pdf->Cell(45, 8, number_format($tpl_value, 0, ',', '.'), 1, 0, 'C');
-            $pdf->Cell(30, 8, 'x', 1, 0, 'C');
-            $pdf->Cell(35, 8, '1.000%', 1, 0, 'C');
-            $pdf->Cell(50, 8, 'Rp ' . number_format($tanggungJawabResult, 0, ',', '.'), 1, 1, 'C');
+            $this->tableRow(
+                $pdf,
+                'Tanggung Jawab Pihak Ketiga Limit',
+                $tpl_value,
+                'x',
+                '1.000%',
+                $tanggungJawabResult
+            );
         }
 
-        // Tambahkan total premium di akhir tabel
+        // Total Premium
         $pdf->SetFont('helvetica', 'B', 12);
-        $pdf->Cell(45, 8, 'Total Premium', 1, 0, 'L', 1);
-        $pdf->Cell(30, 8, '', 1, 0, 'C');
-        $pdf->Cell(35, 8, '', 1, 0, 'C');
-        $pdf->Cell(50, 8, 'Rp ' . number_format($hasil, 2, ',', '.'), 1, 1, 'C');
+        $pdf->Cell(150, 8, 'Total Premium', 1, 0, 'R', 1);
+        $pdf->Cell(40, 8, 'Rp ' . number_format($hasil, 0, ',', '.'), 1, 1, 'C');
 
-        // Catatan
+        // Administrasi + Materai
+        $pdf->SetFont('helvetica', 'B', 12);
+        $pdf->Cell(150, 8, 'Administrasi + Materai', 1, 0, 'R', 1);
+        $pdf->Cell(40, 8, 'Rp 60.000', 1, 1, 'C');
+
+        // Total Premi yang Harus Dibayar
+        $hasilakhir = $hasil + 60000;
+        $pdf->SetFont('helvetica', 'B', 14);
+        $pdf->SetFillColor(200, 200, 200); // Tambahkan latar abu-abu untuk penekanan
+        $pdf->Cell(150, 10, 'Total Premi yang Harus Dibayar', 1, 0, 'R', 1);
+        $pdf->Cell(40, 10, 'Rp ' . number_format($hasilakhir, 0, ',', '.'), 1, 1, 'C');
+
+        // Catatan Penting
         $pdf->Ln(10);
         $pdf->SetFont('helvetica', 'I', 10);
-        $pdf->MultiCell(0, 10, 'Catatan Penting: OR (Own Risk) Rp. 300.000. Risiko tambahan...', 0, 'L');
-        $pdf->MultiCell(0, 10, 'Kendaraan tidak disewakan atau digunakan sebagai taxi online atau penggunaan lain yang mendapatkan imbalan jasa', 0, 'L');
+        $pdf->MultiCell(0, 8, 'Catatan Penting: OR (Own Risk) Rp. 300.000...', 0, 'L');
 
         // Tambahkan QR Code
-        $qrStyle = array('border' => 1, 'padding' => 3);
-        $pdf->write2DBarcode('https://www.raksaonline.com/', 'QRCODE,H', 150, 10, 30, 30, $qrStyle, 'N');
+        $pdf->write2DBarcode('https://www.raksaonline.com/', 'QRCODE,H', 160, 15, 30, 30, array(), 'N');
 
         // Footer
         $pdf->SetY(-15);
         $pdf->SetFont('helvetica', 'I', 8);
         $pdf->Cell(0, 10, 'Page ' . $pdf->getAliasNumPage() . ' of ' . $pdf->getAliasNbPages(), 0, 0, 'C');
 
-        // Output
+        // Output PDF
         $file_name = strtolower(str_replace(' ', '_', $nama_tertanggung)) . '_' . $nomor_quotation . '.pdf';
         $file_path = FCPATH . 'uploads/' . $file_name;
         $pdf->Output($file_path, 'F');
+
 
         // Simpan data ke database
         $penawaranModel->save([
@@ -338,6 +421,44 @@ class HomeController extends Controller
 
         // Return the generated PDF as a download
         return $this->response->download($file_path, null);
+    }
+
+    private function tableRow($pdf, $label, $coverage, $symbol, $rate, $premium)
+    {
+        // Set font
+        $pdf->SetFont('Helvetica', '', 10);
+
+        // Lebar kolom (disesuaikan)
+        $labelWidth = 60;
+        $coverageWidth = 50;
+        $symbolWidth = 10;
+        $rateWidth = 30;
+        $premiumWidth = 40;
+
+        // Tinggi baris
+        $rowHeight = 8;
+
+        // Ambil posisi awal X dan Y
+        $xStart = $pdf->GetX();
+        $yStart = $pdf->GetY();
+
+        // Kolom pertama: Label (MultiCell untuk teks panjang)
+        $pdf->MultiCell($labelWidth, $rowHeight, $label, 1, 'L');
+
+        // Hitung tinggi teks label untuk penyesuaian tinggi baris
+        $labelHeight = $pdf->GetY() - $yStart;
+
+        // Ambil tinggi terbesar antara label dan tinggi baris default
+        $finalRowHeight = max($rowHeight, $labelHeight);
+
+        // Atur posisi kembali untuk kolom lainnya
+        $pdf->SetXY($xStart + $labelWidth, $yStart);
+
+        // Kolom lainnya (gunakan Cell)
+        $pdf->Cell($coverageWidth, $finalRowHeight, number_format($coverage, 0, ',', '.'), 1, 0, 'C');
+        $pdf->Cell($symbolWidth, $finalRowHeight, $symbol, 1, 0, 'C');
+        $pdf->Cell($rateWidth, $finalRowHeight, $rate, 1, 0, 'C');
+        $pdf->Cell($premiumWidth, $finalRowHeight, 'Rp ' . number_format($premium, 0, ',', '.'), 1, 1, 'C');
     }
 
     public function history()
